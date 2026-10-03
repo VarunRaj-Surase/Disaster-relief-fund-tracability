@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { scenarios } from "@/lib/data";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -213,7 +213,12 @@ export function CampaignWorkspace({ onBack }: { onBack: () => void }) {
         </div>
 
         {formOpen && (
-          <CampaignForm onSubmit={createCampaign} error={formError} onClose={() => setFormOpen(false)} />
+          <CampaignForm
+            onSubmit={createCampaign}
+            error={formError}
+            onClose={() => setFormOpen(false)}
+            onFillDemoData={() => setFormError("")}
+          />
         )}
         {createdId && <p role="status" className="mt-4 text-[12px] text-ink">Campaign {createdId} added to this tab’s preview register.</p>}
       </main>
@@ -225,11 +230,56 @@ function CampaignForm({
   onSubmit,
   error,
   onClose,
+  onFillDemoData,
 }: {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   error: string;
   onClose: () => void;
+  onFillDemoData: () => void;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
+
+  function fillDemoData() {
+    const form = formRef.current;
+    if (!form) return;
+
+    const values: Record<string, string> = {
+      title: "DEMO - Relief support for flood-affected families",
+      event: "Kerala Floods 2018",
+      district: "Idukki District, Kerala",
+      target: "500000",
+      purpose: "Temporary shelter, food supplies, and essential household repairs for affected families.",
+      hostName: "Demo Relief Committee",
+      hostContact: "9876543210",
+      bankName: "State Bank of India (demo)",
+      accountHolder: "Demo Relief Committee",
+      accountNumber: "123456789012",
+      accountConfirmation: "123456789012",
+      ifsc: "SBIN0001234",
+      authority: "District Disaster Management Authority (demo)",
+      permissionReference: "DEMO-NOC-2026-001",
+    };
+
+    for (const [name, value] of Object.entries(values)) {
+      const field = form.elements.namedItem(name);
+      if (
+        field instanceof HTMLInputElement ||
+        field instanceof HTMLSelectElement ||
+        field instanceof HTMLTextAreaElement
+      ) {
+        field.value = value;
+      }
+    }
+
+    const permissionInput = form.elements.namedItem("permissionDocument");
+    if (permissionInput instanceof HTMLInputElement) {
+      const transfer = new DataTransfer();
+      transfer.items.add(makeDemoPermissionPdf());
+      permissionInput.files = transfer.files;
+    }
+    onFillDemoData();
+  }
+
   return (
     <div className="fixed inset-0 z-30 overflow-y-auto bg-black/65 p-3 sm:p-6" role="presentation">
       <section role="dialog" aria-modal="true" aria-labelledby="create-campaign-title" className="mx-auto my-4 w-full max-w-3xl rounded-panel border border-line/25 bg-panel p-4 shadow-2xl sm:my-8 sm:p-6">
@@ -238,10 +288,13 @@ function CampaignForm({
             <h2 id="create-campaign-title" className="text-[16px] font-medium text-ink">Create relief campaign</h2>
             <p className="mt-1 text-[11px] text-muted">Authority permission is required before a campaign can be submitted for review.</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close campaign form" className="press rounded-panel border border-line/25 px-3 py-2 font-mono text-[10px] text-muted hover:text-ink">Close</button>
+          <div className="flex shrink-0 gap-2">
+            <button type="button" onClick={fillDemoData} className="press rounded-panel border border-line/25 px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted hover:text-ink">Fill demo data</button>
+            <button type="button" onClick={onClose} aria-label="Close campaign form" className="press rounded-panel border border-line/25 px-3 py-2 font-mono text-[10px] text-muted hover:text-ink">Close</button>
+          </div>
         </div>
 
-        <form className="mt-4 space-y-5" onSubmit={onSubmit}>
+        <form ref={formRef} className="mt-4 space-y-5" onSubmit={onSubmit}>
           <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <legend className="mb-3 font-mono text-[9px] uppercase tracking-widest text-faint">Campaign details</legend>
             <FormField label="Campaign title">
@@ -374,6 +427,28 @@ function FormField({
 }
 
 const inputClass = "w-full rounded-panel border border-line/30 bg-ground-deep px-3 py-2.5 text-[12px] text-ink placeholder:text-faint focus:border-signal/60";
+
+function makeDemoPermissionPdf(): File {
+  const stream = "BT /F1 20 Tf 50 720 Td (DEMO ONLY - NOT AN AUTHORITY APPROVAL) Tj ET";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${new TextEncoder().encode(stream).length} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(new TextEncoder().encode(pdf).length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xrefOffset = new TextEncoder().encode(pdf).length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new File([pdf], "demo-authority-permission.pdf", { type: "application/pdf" });
+}
 
 function formatAmount(amount: number): string {
   return new Intl.NumberFormat("en-IN", {
